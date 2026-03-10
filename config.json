@@ -4,10 +4,15 @@
   "version": "1.0.0",
   "author": "Barak Shakel",
   "description": "Advanced hardware health monitoring plugin for MeshCentral.",
+  "hasAdminPanel": false,
   "homepage": "https://github.com/BarakShakel/MeshCentral-HWHealth",
   "changelogUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/changelog.md",
-  "downloadUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/config.json",
-  "repository": "BarakShakel/MeshCentral-HWHealth",
-  "hasServer": true,
-  "hasWebUI": true
+  "configUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/config.json",
+  "downloadUrl": "https://github.com/BarakShakel/MeshCentral-HWHealth/archive/refs/heads/main.zip",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BarakShakel/MeshCentral-HWHealth.git"
+  },
+  "versionHistoryUrl": "https://api.github.com/repos/BarakShakel/MeshCentral-HWHealth/tags",
+  "meshCentralCompat": ">=1.1.54"
 }
