@@ -10,7 +10,7 @@ module.exports.hwhealth = function (parent) {
         console.log('HW Health plugin loaded successfully.');
     };
 
-    // --- קוד שמוזרק לדפדפן של המנהל ---
+    // --- קוד שמוזרק לדפדפן של המנהל (לא שונה) ---
     obj.onDeviceRefreshEnd = function () {
         if (typeof currentNode === 'undefined' || currentNode == null) return;
         if (!currentNode.osdesc || currentNode.osdesc.toLowerCase().indexOf('windows') === -1) return;
@@ -42,7 +42,6 @@ module.exports.hwhealth = function (parent) {
                 QH('hwhealthRaw', '');
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait)');
 
-                // התיקון הקריטי של ChatGPT: אות S גדולה ב-meshServer
                 meshServer.send({
                     action: 'plugin',
                     plugin: 'hwhealth',
@@ -99,50 +98,70 @@ module.exports.hwhealth = function (parent) {
     }
     // --- סוף קוד מוזרק לדפדפן ---
 
-    // הוק מס' 1: קבלת בקשות מהדפדפן והעברה ל-Agent
-    obj.hook_webSocketMessage = function (req, user, ws, msg) {
-        if (msg.action === 'plugin' && msg.plugin === 'hwhealth') {
-            if (msg.pluginaction === 'getHealth') {
-                var agent = obj.meshServer.webserver.wsagents[msg.nodeid];
+
+    // --- פונקציית הניתוב הראשית המדויקת לפי מודל RegEdit ---
+    obj.serveraction = function(command, myparent, grandparent) {
+        if (command.plugin !== 'hwhealth') return;
+
+        // חילוץ ה-Session ID כדי לדעת לאיזה דפדפן להחזיר תשובה
+        var sessionid = null;
+        try {
+            sessionid = myparent.ws.sessionId;
+        } catch (e) {
+            // שגיאה כאן היא טבעית אם ההודעה הגיעה מה-Agent ולא מה-UI, לכן נתעלם
+        }
+
+        var currentSessionid = command.sessionid || sessionid;
+
+        switch (command.pluginaction) {
+            // 1. קריאה שמגיעה מהדפדפן וצריכה להישלח למחשב המרוחק (Agent)
+            case 'getHealth':
+                var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
                     agent.send(JSON.stringify({
                         action: 'plugin',
                         plugin: 'hwhealth',
                         pluginaction: 'getHealth',
-                        sessionid: ws.sessionId // שומרים את ה-ID של הדפדפן כדי לדעת למי להחזיר
+                        sessionid: currentSessionid,
+                        nodeid: command.nodeid
                     }));
                 } else {
-                    ws.send(JSON.stringify({
-                        action: 'plugin',
-                        plugin: 'hwhealth',
-                        method: 'loadHealthError',
-                        message: 'Agent is offline or disconnected.'
-                    }));
-                }
-            }
-        }
-    };
-
-    // הוק מס' 2: קבלת נתונים מה-Agent והחזרה לדפדפן שביקש
-    obj.hook_processAgentData = function (agent, msg) {
-        if (typeof msg === 'object' && msg.action === 'plugin' && msg.plugin === 'hwhealth') {
-            if (msg.pluginaction === 'healthData' || msg.pluginaction === 'healthError') {
-                if (msg.sessionid) {
-                    var userWs = obj.meshServer.webserver.wsclients[msg.sessionid];
-                    if (userWs) {
-                        userWs.send(JSON.stringify({
+                    // אם המחשב מנותק, נחזיר שגיאה ישירות לדפדפן (שימוש ב-wssessions2!)
+                    if (currentSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[currentSessionid]) {
+                        obj.meshServer.webserver.wssessions2[currentSessionid].send(JSON.stringify({
                             action: 'plugin',
                             plugin: 'hwhealth',
-                            method: msg.pluginaction === 'healthData' ? 'loadHealthData' : 'loadHealthError',
-                            data: msg.data,
-                            message: msg.message
+                            method: 'loadHealthError',
+                            message: 'Agent is offline or disconnected.',
+                            nodeid: command.nodeid
                         }));
                     }
                 }
-            }
-            return true; // עוצר את המשך העיבוד בשרת כי אנחנו טיפלנו בזה
+                break;
+
+            // 2. תשובות שמגיעות מה-Agent וצריכות לחזור לדפדפן שביקש אותן
+            case 'healthData':
+            case 'healthError':
+                var targetSessionid = command.sessionid;
+                var response = {
+                    action: 'plugin',
+                    plugin: 'hwhealth',
+                    method: command.pluginaction === 'healthData' ? 'loadHealthData' : 'loadHealthError',
+                    data: command.data,
+                    message: command.message,
+                    nodeid: command.nodeid
+                };
+                
+                // התיקון הקריטי: שולחים חזרה דרך wssessions2 (ממש כמו ב-RegEdit)
+                if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
+                    try {
+                        obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
+                    } catch (e) {
+                        console.log('HW Health error sending to session:', e);
+                    }
+                }
+                break;
         }
-        return false;
     };
 
     return obj;
