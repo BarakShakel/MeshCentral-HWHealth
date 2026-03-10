@@ -5,14 +5,17 @@ module.exports.hwhealth = function (parent) {
     obj.parent = parent;
     obj.meshServer = parent.parent;
     
-    // אלו הפונקציות ש-MeshCentral יארוז וישלח לדפדפן!
+    // אלו הפונקציות שהשרת אורז ושולח לדפדפן של המנהל
     obj.exports = ['onDeviceRefreshEnd', 'loadHealthData', 'loadHealthError'];
 
     obj.server_startup = function () {
         console.log('HW Health plugin loaded on server.');
     };
 
-    // --- קוד שרץ בדפדפן של המנהל ---
+    // ==========================================
+    // חלק 1: קוד שמוזרק ורץ בדפדפן (צד לקוח)
+    // ==========================================
+    
     obj.onDeviceRefreshEnd = function () {
         if (typeof currentNode === 'undefined' || currentNode == null) return;
         if (!currentNode.osdesc || currentNode.osdesc.toLowerCase().indexOf('windows') === -1) return;
@@ -44,21 +47,28 @@ module.exports.hwhealth = function (parent) {
 
                 QH('hwhealthSummary', '');
                 QH('hwhealthRaw', '');
-                QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait)');
+                QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait up to 15 seconds)');
 
-                // חובה אותיות קטנות בדפדפן! meshserver
-                meshserver.send({
-                    action: 'plugin',
-                    plugin: 'hwhealth',
-                    pluginaction: 'getHealth',
-                    nodeid: currentNode._id
-                });
+                // חיפוש חכם של אובייקט התקשורת בדפדפן
+                var sender = (typeof meshServer !== 'undefined') ? meshServer : ((typeof server !== 'undefined') ? server : null);
+                if (sender) {
+                    sender.send({ 
+                        action: 'plugin', 
+                        plugin: 'hwhealth', 
+                        pluginaction: 'getHealth', 
+                        nodeid: currentNode._id 
+                    });
+                } else {
+                    if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
+                        pluginHandler.hwhealth.loadHealthError({ message: 'WebSocket sender not found in browser.' });
+                    }
+                }
             };
         }
     };
 
     obj.loadHealthData = function (msg) {
-        // הכנסנו את הפונקציה פנימה כדי שתישלח יחד לדפדפן ולא תהיה חסרה
+        // פונקציית עזר לניקוי תווים, מוטמעת כאן כדי שתישלח יחד לדפדפן
         function esc(s) {
             if (s == null) return '';
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -71,7 +81,7 @@ module.exports.hwhealth = function (parent) {
         if (statusEl) statusEl.innerText = 'Hardware data loaded successfully.';
 
         if (!msg || !msg.data) {
-            if (rawEl) rawEl.textContent = 'No data returned.';
+            if (rawEl) rawEl.textContent = 'No data returned from Agent.';
             return;
         }
 
@@ -95,12 +105,18 @@ module.exports.hwhealth = function (parent) {
         var statusEl = document.getElementById('hwhealthStatus');
         var rawEl = document.getElementById('hwhealthRaw');
         if (statusEl) statusEl.innerText = 'Failed to load hardware data.';
-        if (rawEl) rawEl.textContent = (msg && msg.message) ? msg.message : 'Unknown error.';
+        
+        // מדפיס את האובייקט המלא כדי לעזור בדיבאג
+        if (rawEl) {
+            var errorText = (msg && msg.message) ? msg.message : 'Unknown error occurred.';
+            rawEl.textContent = "ERROR DUMP:\n" + errorText + "\n\nRaw Object:\n" + JSON.stringify(msg, null, 2);
+        }
     };
-    // --- סוף קוד שרץ בדפדפן ---
 
+    // ==========================================
+    // חלק 2: קוד שרץ בשרת בלבד (ניתוב הודעות)
+    // ==========================================
 
-    // --- קוד הניתוב שרץ בשרת בלבד ---
     obj.serveraction = function(command, myparent, grandparent) {
         if (command.plugin !== 'hwhealth') return;
 
@@ -112,6 +128,8 @@ module.exports.hwhealth = function (parent) {
         var currentSessionid = command.sessionid || sessionid;
 
         switch (command.pluginaction) {
+            
+            // 1. בקשה הגיעה מהדפדפן (UI) -> נשלח ל-Agent
             case 'getHealth':
                 var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
@@ -123,6 +141,7 @@ module.exports.hwhealth = function (parent) {
                         nodeid: command.nodeid
                     }));
                 } else {
+                    // Agent מנותק, נחזיר שגיאה ישירות לדפדפן
                     if (currentSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[currentSessionid]) {
                         obj.meshServer.webserver.wssessions2[currentSessionid].send(JSON.stringify({
                             action: 'plugin',
@@ -135,6 +154,7 @@ module.exports.hwhealth = function (parent) {
                 }
                 break;
 
+            // 2. תשובה הגיעה מה-Agent -> נחזיר לדפדפן של המנהל
             case 'healthData':
             case 'healthError':
                 var targetSessionid = command.sessionid;
@@ -150,7 +170,9 @@ module.exports.hwhealth = function (parent) {
                 if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
                     try {
                         obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
-                    } catch (e) {}
+                    } catch (e) {
+                        console.log('HW Health routing error:', e);
+                    }
                 }
                 break;
         }
