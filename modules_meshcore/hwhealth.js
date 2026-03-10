@@ -45,23 +45,27 @@ function runPowerShell(command, callback) {
     var Xstdout = null;
     var Xstderr = null;
     
-    var child = require('child_process').execFile(
-        process.env['windir'] + '\\system32\\WindowsPowerShell\\v1.0\\powershell.exe',
-        ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
-        { cwd: process.env['TEMP'] },
-        function(err, stdout, stderr) {
-            Xerr = err;
-            Xstdout = stdout;
-            Xstderr = stderr;
-        }
-    );
-    
-    child.stdout.str = '';
-    child.stdout.on('data', function (chunk) { this.str += chunk.toString(); });
-    child.waitExit();
+    try {
+        var child = require('child_process').execFile(
+            process.env['windir'] + '\\system32\\WindowsPowerShell\\v1.0\\powershell.exe',
+            ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', command],
+            { cwd: process.env['TEMP'] },
+            function(err, stdout, stderr) {
+                Xerr = err;
+                Xstdout = stdout;
+                Xstderr = stderr;
+            }
+        );
+        
+        child.stdout.str = '';
+        child.stdout.on('data', function (chunk) { this.str += chunk.toString(); });
+        child.waitExit();
 
-    Xstdout = child.stdout.str.trim();
-    callback(Xerr, Xstdout, Xstderr);
+        Xstdout = child.stdout.str.trim();
+        callback(Xerr, Xstdout, Xstderr);
+    } catch (e) {
+        callback(e, null, null);
+    }
 }
 
 /**
@@ -98,7 +102,7 @@ function doGetHealth(sessionid, nodeid) {
         "$batt = Get-CimInstance Win32_Battery | Select-Object -First 1; " +
         "$cpuTempRaw = (Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace root/wmi | Select-Object -First 1).CurrentTemperature; " +
         "if ($cpuTempRaw) { $cpuTemp = \"$([math]::Round(($cpuTempRaw/10)-273.15, 1)) C\" } else { $cpuTemp = 'N/A' }; " +
-        "if ($batt) { $battSummary = \"$($batt.EstimatedChargeRemaining)%\" } else { $battSummary = 'No Battery / Desktop' }; " +
+        "if ($batt) { $battSummary = \"$($batt.EstimatedChargeRemaining)% (Status: $($batt.BatteryStatus))\" } else { $battSummary = 'No Battery / Desktop' }; " +
         "$result = @{ " +
         "computerName = $cs.Name; " +
         "manufacturer = $cs.Manufacturer; " +
@@ -116,7 +120,7 @@ function doGetHealth(sessionid, nodeid) {
 
     runPowerShell(psCommand, function(err, stdout, stderr) {
         if (err || (stdout === "" && stderr !== "")) {
-            sendResult('healthError', false, null, 'PowerShell Error: ' + (stderr || err), sessionid, nodeid);
+            sendResult('healthError', false, null, 'PowerShell Error: ' + (stderr || (err && err.message) || err), sessionid, nodeid);
             return;
         }
 
@@ -130,4 +134,5 @@ function doGetHealth(sessionid, nodeid) {
     });
 }
 
+// Expose the consoleaction function to MeshCore
 module.exports = { consoleaction: consoleaction };
