@@ -14,5 +14,5 @@
     "url": "https://github.com/BarakShakel/MeshCentral-HWHealth.git"
   },
   "versionHistoryUrl": "https://api.github.com/repos/BarakShakel/MeshCentral-HWHealth/tags",
-  "meshCentralCompat": ">=1.0.0"
+  "meshCentralCompat": ">=1.1.54"
 }
