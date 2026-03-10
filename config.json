@@ -5,8 +5,6 @@
   "author": "Barak Shakel",
   "description": "Advanced hardware health monitoring plugin for MeshCentral.",
   "hasAdminPanel": false,
-  "hasServer": true,
-  "hasWebUI": true,
   "homepage": "https://github.com/BarakShakel/MeshCentral-HWHealth",
   "changelogUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/changelog.md",
   "configUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/config.json",
