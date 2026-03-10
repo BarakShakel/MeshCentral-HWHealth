@@ -10,6 +10,7 @@ module.exports.hwhealth = function (parent) {
         console.log('HW Health plugin loaded successfully.');
     };
 
+    // --- קוד שמוזרק לדפדפן של המנהל ---
     obj.onDeviceRefreshEnd = function () {
         if (typeof currentNode === 'undefined' || currentNode == null) return;
         if (!currentNode.osdesc || currentNode.osdesc.toLowerCase().indexOf('windows') === -1) return;
@@ -21,10 +22,10 @@ module.exports.hwhealth = function (parent) {
             + '  <div style="font-size:18px;font-weight:bold;margin-bottom:10px;">Hardware Health</div>'
             + '  <div id="hwhealthStatus" style="margin-bottom:10px;color:#666;">Ready.</div>'
             + '  <div style="margin-bottom:10px;">'
-            + '    <button id="hwhealthRefreshBtn" class="btn">Refresh</button>'
+            + '    <button id="hwhealthRefreshBtn" class="btn btn-primary">Refresh Hardware Data</button>'
             + '  </div>'
-            + '  <div id="hwhealthSummary" style="margin-bottom:12px;"></div>'
-            + '  <pre id="hwhealthRaw" style="white-space:pre-wrap;background:#111;color:#ddd;padding:10px;border-radius:6px;min-height:220px;"></pre>'
+            + '  <div id="hwhealthSummary" style="margin-bottom:12px; font-size: 14px; line-height: 1.6;"></div>'
+            + '  <pre id="hwhealthRaw" style="white-space:pre-wrap;background:#111;color:#33ff33;padding:10px;border-radius:6px;min-height:220px;"></pre>'
             + '</div>';
 
         QA('pluginHwHealth', html);
@@ -39,9 +40,10 @@ module.exports.hwhealth = function (parent) {
 
                 QH('hwhealthSummary', '');
                 QH('hwhealthRaw', '');
-                QH('hwhealthStatus', 'Collecting hardware data from endpoint...');
+                QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait)');
 
-                meshserver.send({
+                // התיקון הקריטי של ChatGPT: אות S גדולה ב-meshServer
+                meshServer.send({
                     action: 'plugin',
                     plugin: 'hwhealth',
                     pluginaction: 'getHealth',
@@ -49,10 +51,6 @@ module.exports.hwhealth = function (parent) {
                 });
             };
         }
-
-        setTimeout(function () {
-            if (btn) btn.click();
-        }, 50);
     };
 
     obj.loadHealthData = function (msg) {
@@ -70,14 +68,14 @@ module.exports.hwhealth = function (parent) {
         var d = msg.data;
 
         var summaryHtml = '';
-        summaryHtml += '<div><b>Computer:</b> ' + esc(d.computerName || '-') + '</div>';
+        summaryHtml += '<div><b>Computer Name:</b> ' + esc(d.computerName || '-') + '</div>';
         summaryHtml += '<div><b>Manufacturer / Model:</b> ' + esc((d.manufacturer || '-') + ' / ' + (d.model || '-')) + '</div>';
-        summaryHtml += '<div><b>Serial:</b> ' + esc(d.serialNumber || '-') + '</div>';
-        summaryHtml += '<div><b>BIOS:</b> ' + esc(d.biosVersion || '-') + '</div>';
-        summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName || '-') + '</div>';
+        summaryHtml += '<div><b>Serial Number:</b> ' + esc(d.serialNumber || '-') + '</div>';
+        summaryHtml += '<div><b>BIOS Version:</b> ' + esc(d.biosVersion || '-') + '</div>';
+        summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName || '-') + ' (Load: ' + esc(d.cpuLoad || '-') + ', Temp: ' + esc(d.cpuTemp || '-') + ')</div>';
         summaryHtml += '<div><b>RAM:</b> ' + esc(d.memorySummary || '-') + '</div>';
         summaryHtml += '<div><b>Battery:</b> ' + esc(d.batterySummary || 'No battery / unavailable') + '</div>';
-        summaryHtml += '<div><b>Collected At:</b> ' + esc(d.collectedAt || '-') + '</div>';
+        summaryHtml += '<div style="margin-top: 10px; color: #888; font-size: 12px;"><b>Collected At:</b> ' + esc(d.collectedAt || '-') + '</div>';
 
         if (summaryEl) summaryEl.innerHTML = summaryHtml;
         if (rawEl) rawEl.textContent = JSON.stringify(d, null, 2);
@@ -99,75 +97,52 @@ module.exports.hwhealth = function (parent) {
             .replace(/"/g, '&quot;')
             .replace(/'/g, '&#39;');
     }
+    // --- סוף קוד מוזרק לדפדפן ---
 
-    obj.serveraction = function (command, myparent, grandparent) {
-        if (!command || command.plugin !== 'hwhealth') return;
-
-        var sessionid = null;
-        try { sessionid = myparent.ws.sessionId; } catch (e) {}
-
-        switch (command.pluginaction) {
-            case 'getHealth':
-                if (!command.nodeid) {
-                    obj.sendToSession(sessionid, {
+    // הוק מס' 1: קבלת בקשות מהדפדפן והעברה ל-Agent
+    obj.hook_webSocketMessage = function (req, user, ws, msg) {
+        if (msg.action === 'plugin' && msg.plugin === 'hwhealth') {
+            if (msg.pluginaction === 'getHealth') {
+                var agent = obj.meshServer.webserver.wsagents[msg.nodeid];
+                if (agent != null) {
+                    agent.send(JSON.stringify({
+                        action: 'plugin',
+                        plugin: 'hwhealth',
+                        pluginaction: 'getHealth',
+                        sessionid: ws.sessionId // שומרים את ה-ID של הדפדפן כדי לדעת למי להחזיר
+                    }));
+                } else {
+                    ws.send(JSON.stringify({
                         action: 'plugin',
                         plugin: 'hwhealth',
                         method: 'loadHealthError',
-                        message: 'Missing nodeid.'
-                    });
-                    return;
+                        message: 'Agent is offline or disconnected.'
+                    }));
                 }
-
-                if (!obj.meshServer.webserver.wsagents[command.nodeid]) {
-                    obj.sendToSession(sessionid, {
-                        action: 'plugin',
-                        plugin: 'hwhealth',
-                        method: 'loadHealthError',
-                        message: 'Agent is not online.'
-                    });
-                    return;
-                }
-
-                obj.meshServer.webserver.wsagents[command.nodeid].send(JSON.stringify({
-                    action: 'plugin',
-                    plugin: 'hwhealth',
-                    pluginaction: 'getHealth',
-                    sessionid: sessionid,
-                    nodeid: command.nodeid
-                }));
-                break;
-
-            case 'healthData':
-                obj.sendToSession(command.sessionid, {
-                    action: 'plugin',
-                    plugin: 'hwhealth',
-                    method: 'loadHealthData',
-                    data: command.data,
-                    nodeid: command.nodeid
-                });
-                break;
-
-            case 'healthError':
-                obj.sendToSession(command.sessionid, {
-                    action: 'plugin',
-                    plugin: 'hwhealth',
-                    method: 'loadHealthError',
-                    message: command.message || 'Endpoint collection failed.',
-                    nodeid: command.nodeid
-                });
-                break;
+            }
         }
     };
 
-    obj.sendToSession = function (sessionid, payload) {
-        try {
-            if (!sessionid) return;
-            if (!obj.meshServer.webserver.wssessions2) return;
-            if (!obj.meshServer.webserver.wssessions2[sessionid]) return;
-            obj.meshServer.webserver.wssessions2[sessionid].send(JSON.stringify(payload));
-        } catch (e) {
-            console.log('HW Health sendToSession error: ' + e);
+    // הוק מס' 2: קבלת נתונים מה-Agent והחזרה לדפדפן שביקש
+    obj.hook_processAgentData = function (agent, msg) {
+        if (typeof msg === 'object' && msg.action === 'plugin' && msg.plugin === 'hwhealth') {
+            if (msg.pluginaction === 'healthData' || msg.pluginaction === 'healthError') {
+                if (msg.sessionid) {
+                    var userWs = obj.meshServer.webserver.wsclients[msg.sessionid];
+                    if (userWs) {
+                        userWs.send(JSON.stringify({
+                            action: 'plugin',
+                            plugin: 'hwhealth',
+                            method: msg.pluginaction === 'healthData' ? 'loadHealthData' : 'loadHealthError',
+                            data: msg.data,
+                            message: msg.message
+                        }));
+                    }
+                }
+            }
+            return true; // עוצר את המשך העיבוד בשרת כי אנחנו טיפלנו בזה
         }
+        return false;
     };
 
     return obj;
