@@ -1,0 +1,13 @@
+{
+  "name": "HW Health",
+  "shortName": "hwhealth",
+  "version": "1.0.0",
+  "author": "Barak Shakel",
+  "description": "Advanced hardware health monitoring plugin for MeshCentral.",
+  "homepage": "https://github.com/BarakShakel/MeshCentral-HWHealth",
+  "changelogUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/changelog.md",
+  "downloadUrl": "https://raw.githubusercontent.com/BarakShakel/MeshCentral-HWHealth/main/config.json",
+  "repository": "BarakShakel/MeshCentral-HWHealth",
+  "hasServer": true,
+  "hasWebUI": true
+}
