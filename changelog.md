@@ -1,3 +1,3 @@
 
-letting chat-GPT to do all the work
+Working again with Gemini
 v1.0.8
