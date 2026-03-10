@@ -1,7 +1,7 @@
 {
   "name": "HW Health",
   "shortName": "hwhealth",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "author": "Barak Shakel",
   "description": "Advanced hardware health monitoring plugin for MeshCentral.",
   "hasAdminPanel": false,
