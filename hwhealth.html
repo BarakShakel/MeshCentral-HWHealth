@@ -1,0 +1,41 @@
+<script>
+    "use strict";
+    console.log("🚀 HW Health Plugin HTML loaded inside MeshCentral!");
+
+    pluginHandler.registerPlugin({
+        name: "hwhealth",
+        
+        onDeviceSetup: function() {
+            console.log("HW Health: onDeviceSetup function triggered!");
+            if ($('#tabHwHealth').length === 0) {
+                $('#deviceTabs').append('<a id="tabHwHealth" href="#" onclick="hwhealth_ShowTab()" class="nav-item nav-link">HW Health</a>');
+            }
+        },
+        
+        onPluginMessage: function(msg) {
+            if(msg.plugin === 'hwhealth' && msg.method === 'healthData') {
+                $('#hwhealth_results').html('<pre>' + msg.data + '</pre>');
+            }
+        }
+    });
+
+    function hwhealth_ShowTab() {
+        $('.deviceTab').hide();
+        $('#deviceTabs .nav-link').removeClass('active');
+        $('#tabHwHealth').addClass('active');
+
+        var html = '<div style="padding: 20px;">';
+        html += '<h3>מצב חומרה (HW Health)</h3>';
+        html += '<p>מחשב: <b>' + currentNode.name + '</b></p>';
+        html += '<button class="btn btn-sm btn-primary" onclick="hwhealth_RequestData()">בדוק חומרה</button>';
+        html += '<div id="hwhealth_results" style="margin-top:20px; padding:15px; background-color:#f8f9fa; border:1px solid #ddd; border-radius:4px;">ממתין... לחץ על הכפתור כדי לשלוף נתונים.</div>';
+        html += '</div>';
+
+        $('#deviceContent').html(html).show();
+    }
+
+    function hwhealth_RequestData() {
+        $('#hwhealth_results').html('<i>טוען נתונים מה-Agent...</i>');
+        meshServer.send({ action: 'plugin', plugin: 'hwhealth', method: 'getHealth', nodeid: currentNode._id });
+    }
+</script>
