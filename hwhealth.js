@@ -1,91 +1,162 @@
 "use strict";
 
 module.exports.hwhealth = function (parent) {
-    const obj = {};
+    var obj = {};
     obj.parent = parent;
     obj.meshServer = parent.parent;
 
-    // Export UI hooks to MeshCentral Web UI
-    obj.exports = ['registerPluginTab', 'onDeviceRefreshEnd'];
+    // Expose these functions to the MeshCentral web UI
+    obj.exports = ['onDeviceRefreshEnd', 'loadHealthData', 'loadHealthError'];
 
     obj.server_startup = function () {
-        console.log("HW Health plugin loaded successfully.");
+        console.log('HW Health plugin loaded successfully.');
     };
 
-    // This tells MeshCentral to create a device tab
-    obj.registerPluginTab = function () {
-        return { tabId: 'hwhealth', tabTitle: 'HW Health' };
-    };
+    // -------------------------
+    // Frontend / Web UI methods
+    // -------------------------
+    obj.onDeviceRefreshEnd = function (nodeid, panel, refresh, event) {
+        if (typeof currentNode === 'undefined' || currentNode == null) return;
 
-    // Called when a device page is refreshed/selected
-    obj.onDeviceRefreshEnd = function () {
-        try {
-            const tab = document.getElementById('hwhealth');
-            if (!tab) return;
+        // Create / register tab
+        pluginHandler.registerPluginTab({
+            tabTitle: 'HW Health',
+            tabId: 'pluginHwHealth'
+        });
 
-            tab.innerHTML = `
-                <div style="padding:12px;">
-                    <div style="font-size:16px;font-weight:bold;margin-bottom:10px;">Hardware Health</div>
-                    <div id="hwhealth_status">Loading hardware information...</div>
-                    <pre id="hwhealth_data" style="margin-top:10px;white-space:pre-wrap;"></pre>
-                </div>
-            `;
+        var html = ''
+            + '<div style="padding:12px;">'
+            + '  <div style="font-size:18px;font-weight:bold;margin-bottom:10px;">Hardware Health</div>'
+            + '  <div id="hwhealthStatus" style="margin-bottom:10px;color:#666;">Loading...</div>'
+            + '  <div style="margin-bottom:10px;">'
+            + '    <button id="hwhealthRefreshBtn" class="btn">Refresh</button>'
+            + '  </div>'
+            + '  <pre id="hwhealthData" style="white-space:pre-wrap;background:#111;color:#ddd;padding:10px;border-radius:6px;min-height:180px;"></pre>'
+            + '</div>';
 
-            // Try to locate current node/device id from page globals
-            const nodeId =
-                (typeof currentNode !== 'undefined' && currentNode && currentNode._id) ? currentNode._id :
-                (typeof nodeid !== 'undefined') ? nodeid :
-                null;
+        QA('pluginHwHealth', html);
 
-            if (!nodeId) {
-                document.getElementById('hwhealth_status').innerText =
-                    'Tab loaded, but no device context was found.';
-                return;
-            }
+        var btn = document.getElementById('hwhealthRefreshBtn');
+        if (btn) {
+            btn.onclick = function () {
+                if (typeof currentNode === 'undefined' || !currentNode || !currentNode._id) {
+                    obj.loadHealthError({ message: 'No device is currently selected.' });
+                    return;
+                }
 
-            // Ask server side of the plugin for data
-            if (typeof meshserver !== 'undefined' && meshserver && typeof meshserver.send === 'function') {
+                var statusEl = document.getElementById('hwhealthStatus');
+                var dataEl = document.getElementById('hwhealthData');
+                if (statusEl) statusEl.innerText = 'Requesting health data...';
+                if (dataEl) dataEl.textContent = '';
+
                 meshserver.send({
                     action: 'plugin',
                     plugin: 'hwhealth',
-                    method: 'getHealth',
-                    nodeid: nodeId
+                    pluginaction: 'getHealth',
+                    nodeid: currentNode._id
                 });
+            };
+        }
 
-                document.getElementById('hwhealth_status').innerText =
-                    'Request sent to server. Waiting for hardware data...';
-            } else {
-                document.getElementById('hwhealth_status').innerText =
-                    'Tab created, but meshserver.send is unavailable in this UI context.';
-            }
-        } catch (ex) {
-            console.log('HW Health UI error:', ex);
+        // Auto refresh once when tab opens
+        setTimeout(function () {
+            if (btn) btn.click();
+        }, 50);
+    };
+
+    obj.loadHealthData = function (msg) {
+        var statusEl = document.getElementById('hwhealthStatus');
+        var dataEl = document.getElementById('hwhealthData');
+
+        if (statusEl) statusEl.innerText = 'Health data loaded successfully.';
+        if (dataEl) {
+            dataEl.textContent = JSON.stringify(msg.data, null, 2);
         }
     };
 
-    // Handle incoming websocket plugin messages
-    obj.hook_webSocketMessage = function (req, user, ws, msg) {
-        if (!msg || msg.action !== 'plugin' || msg.plugin !== 'hwhealth') return;
+    obj.loadHealthError = function (msg) {
+        var statusEl = document.getElementById('hwhealthStatus');
+        var dataEl = document.getElementById('hwhealthData');
 
-        if (msg.method === 'getHealth') {
-            // TODO: Replace with real agent/server hardware collection logic
-            const responseData = [
-                "CPU Temp: 45°C",
-                "Disk C: 85% Healthy",
-                "Battery: 92% (Charging)"
-            ].join('\n');
+        if (statusEl) statusEl.innerText = 'Failed to load health data.';
+        if (dataEl) {
+            dataEl.textContent = (msg && msg.message) ? msg.message : 'Unknown error.';
+        }
+    };
 
-            try {
-                ws.send(JSON.stringify({
-                    action: 'plugin',
-                    plugin: 'hwhealth',
-                    method: 'healthData',
-                    nodeid: msg.nodeid || null,
-                    data: responseData
-                }));
-            } catch (ex) {
-                console.log("Error sending hwhealth data: " + ex);
-            }
+    // -------------------------
+    // Backend / Server methods
+    // -------------------------
+    obj.serveraction = function (command, myparent, grandparent) {
+        if (!command || command.plugin !== 'hwhealth') return;
+
+        var sessionid = null;
+        try {
+            sessionid = myparent.ws.sessionId;
+        } catch (e) { }
+
+        switch (command.pluginaction) {
+            case 'getHealth':
+                try {
+                    var nodeid = command.nodeid;
+                    var agentConnected = false;
+
+                    if (obj.meshServer &&
+                        obj.meshServer.webserver &&
+                        obj.meshServer.webserver.wsagents &&
+                        obj.meshServer.webserver.wsagents[nodeid]) {
+                        agentConnected = true;
+                    }
+
+                    // Working skeleton:
+                    // this proves the tab/UI/server path is working.
+                    // Later you can replace this block with real agent-side collection.
+                    var response = {
+                        nodeid: nodeid,
+                        collectedAt: new Date().toISOString(),
+                        online: agentConnected,
+                        source: 'server skeleton',
+                        summary: {
+                            message: 'Plugin UI path is working.',
+                            nextStep: 'Replace this object with real hardware collection from the agent.'
+                        },
+                        sample: {
+                            cpuTemperature: 'N/A yet',
+                            diskHealth: 'N/A yet',
+                            battery: 'N/A yet'
+                        }
+                    };
+
+                    obj.sendToSession(sessionid, {
+                        action: 'plugin',
+                        plugin: 'hwhealth',
+                        method: 'loadHealthData',
+                        nodeid: nodeid,
+                        data: response
+                    });
+                } catch (ex) {
+                    obj.sendToSession(sessionid, {
+                        action: 'plugin',
+                        plugin: 'hwhealth',
+                        method: 'loadHealthError',
+                        message: ex.toString()
+                    });
+                }
+                break;
+        }
+    };
+
+    obj.sendToSession = function (sessionid, payload) {
+        try {
+            if (!sessionid) return;
+            if (!obj.meshServer ||
+                !obj.meshServer.webserver ||
+                !obj.meshServer.webserver.wssessions2 ||
+                !obj.meshServer.webserver.wssessions2[sessionid]) return;
+
+            obj.meshServer.webserver.wssessions2[sessionid].send(JSON.stringify(payload));
+        } catch (e) {
+            console.log('HW Health sendToSession error: ' + e);
         }
     };
 
