@@ -4,13 +4,15 @@ module.exports.hwhealth = function (parent) {
     var obj = {};
     obj.parent = parent;
     obj.meshServer = parent.parent;
+    
+    // אלו הפונקציות ש-MeshCentral יארוז וישלח לדפדפן!
     obj.exports = ['onDeviceRefreshEnd', 'loadHealthData', 'loadHealthError'];
 
     obj.server_startup = function () {
-        console.log('HW Health plugin loaded successfully.');
+        console.log('HW Health plugin loaded on server.');
     };
 
-    // --- קוד שמוזרק לדפדפן של המנהל (לא שונה) ---
+    // --- קוד שרץ בדפדפן של המנהל ---
     obj.onDeviceRefreshEnd = function () {
         if (typeof currentNode === 'undefined' || currentNode == null) return;
         if (!currentNode.osdesc || currentNode.osdesc.toLowerCase().indexOf('windows') === -1) return;
@@ -34,7 +36,9 @@ module.exports.hwhealth = function (parent) {
         if (btn) {
             btn.onclick = function () {
                 if (typeof currentNode === 'undefined' || !currentNode || !currentNode._id) {
-                    obj.loadHealthError({ message: 'No device selected.' });
+                    if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
+                        pluginHandler.hwhealth.loadHealthError({ message: 'No device selected.' });
+                    }
                     return;
                 }
 
@@ -42,7 +46,8 @@ module.exports.hwhealth = function (parent) {
                 QH('hwhealthRaw', '');
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait)');
 
-                meshServer.send({
+                // חובה אותיות קטנות בדפדפן! meshserver
+                meshserver.send({
                     action: 'plugin',
                     plugin: 'hwhealth',
                     pluginaction: 'getHealth',
@@ -53,6 +58,12 @@ module.exports.hwhealth = function (parent) {
     };
 
     obj.loadHealthData = function (msg) {
+        // הכנסנו את הפונקציה פנימה כדי שתישלח יחד לדפדפן ולא תהיה חסרה
+        function esc(s) {
+            if (s == null) return '';
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
         var statusEl = document.getElementById('hwhealthStatus');
         var summaryEl = document.getElementById('hwhealthSummary');
         var rawEl = document.getElementById('hwhealthRaw');
@@ -67,14 +78,14 @@ module.exports.hwhealth = function (parent) {
         var d = msg.data;
 
         var summaryHtml = '';
-        summaryHtml += '<div><b>Computer Name:</b> ' + esc(d.computerName || '-') + '</div>';
-        summaryHtml += '<div><b>Manufacturer / Model:</b> ' + esc((d.manufacturer || '-') + ' / ' + (d.model || '-')) + '</div>';
-        summaryHtml += '<div><b>Serial Number:</b> ' + esc(d.serialNumber || '-') + '</div>';
-        summaryHtml += '<div><b>BIOS Version:</b> ' + esc(d.biosVersion || '-') + '</div>';
-        summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName || '-') + ' (Load: ' + esc(d.cpuLoad || '-') + ', Temp: ' + esc(d.cpuTemp || '-') + ')</div>';
-        summaryHtml += '<div><b>RAM:</b> ' + esc(d.memorySummary || '-') + '</div>';
-        summaryHtml += '<div><b>Battery:</b> ' + esc(d.batterySummary || 'No battery / unavailable') + '</div>';
-        summaryHtml += '<div style="margin-top: 10px; color: #888; font-size: 12px;"><b>Collected At:</b> ' + esc(d.collectedAt || '-') + '</div>';
+        summaryHtml += '<div><b>Computer Name:</b> ' + esc(d.computerName) + '</div>';
+        summaryHtml += '<div><b>Manufacturer / Model:</b> ' + esc(d.manufacturer) + ' / ' + esc(d.model) + '</div>';
+        summaryHtml += '<div><b>Serial Number:</b> ' + esc(d.serialNumber) + '</div>';
+        summaryHtml += '<div><b>BIOS Version:</b> ' + esc(d.biosVersion) + '</div>';
+        summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName) + ' (Load: ' + esc(d.cpuLoad) + ', Temp: ' + esc(d.cpuTemp) + ')</div>';
+        summaryHtml += '<div><b>RAM:</b> ' + esc(d.memorySummary) + '</div>';
+        summaryHtml += '<div><b>Battery:</b> ' + esc(d.batterySummary) + '</div>';
+        summaryHtml += '<div style="margin-top: 10px; color: #888; font-size: 12px;"><b>Collected At:</b> ' + esc(d.collectedAt) + '</div>';
 
         if (summaryEl) summaryEl.innerHTML = summaryHtml;
         if (rawEl) rawEl.textContent = JSON.stringify(d, null, 2);
@@ -86,35 +97,21 @@ module.exports.hwhealth = function (parent) {
         if (statusEl) statusEl.innerText = 'Failed to load hardware data.';
         if (rawEl) rawEl.textContent = (msg && msg.message) ? msg.message : 'Unknown error.';
     };
-
-    function esc(s) {
-        if (s == null) return '';
-        return String(s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#39;');
-    }
-    // --- סוף קוד מוזרק לדפדפן ---
+    // --- סוף קוד שרץ בדפדפן ---
 
 
-    // --- פונקציית הניתוב הראשית המדויקת לפי מודל RegEdit ---
+    // --- קוד הניתוב שרץ בשרת בלבד ---
     obj.serveraction = function(command, myparent, grandparent) {
         if (command.plugin !== 'hwhealth') return;
 
-        // חילוץ ה-Session ID כדי לדעת לאיזה דפדפן להחזיר תשובה
         var sessionid = null;
         try {
             sessionid = myparent.ws.sessionId;
-        } catch (e) {
-            // שגיאה כאן היא טבעית אם ההודעה הגיעה מה-Agent ולא מה-UI, לכן נתעלם
-        }
+        } catch (e) {}
 
         var currentSessionid = command.sessionid || sessionid;
 
         switch (command.pluginaction) {
-            // 1. קריאה שמגיעה מהדפדפן וצריכה להישלח למחשב המרוחק (Agent)
             case 'getHealth':
                 var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
@@ -126,7 +123,6 @@ module.exports.hwhealth = function (parent) {
                         nodeid: command.nodeid
                     }));
                 } else {
-                    // אם המחשב מנותק, נחזיר שגיאה ישירות לדפדפן (שימוש ב-wssessions2!)
                     if (currentSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[currentSessionid]) {
                         obj.meshServer.webserver.wssessions2[currentSessionid].send(JSON.stringify({
                             action: 'plugin',
@@ -139,7 +135,6 @@ module.exports.hwhealth = function (parent) {
                 }
                 break;
 
-            // 2. תשובות שמגיעות מה-Agent וצריכות לחזור לדפדפן שביקש אותן
             case 'healthData':
             case 'healthError':
                 var targetSessionid = command.sessionid;
@@ -152,13 +147,10 @@ module.exports.hwhealth = function (parent) {
                     nodeid: command.nodeid
                 };
                 
-                // התיקון הקריטי: שולחים חזרה דרך wssessions2 (ממש כמו ב-RegEdit)
                 if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
                     try {
                         obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
-                    } catch (e) {
-                        console.log('HW Health error sending to session:', e);
-                    }
+                    } catch (e) {}
                 }
                 break;
         }
