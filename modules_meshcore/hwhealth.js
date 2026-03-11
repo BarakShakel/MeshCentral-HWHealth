@@ -1,6 +1,6 @@
 /**
  * @description MeshCentral HW Health Plugin - Agent Side
- * @note Runs in MeshCore (duktape) - ES5 compliant
+ * @note Runs in MeshCore (duktape) - ES5 compliant. All code and comments in English.
  */
 
 "use strict";
@@ -9,12 +9,11 @@ var mesh;
 var obj = this;
 
 /**
- * Main consoleaction handler - receives commands from server
+ * Main consoleaction handler - receives commands routed from the server
  */
 function consoleaction(args, rights, sessionid, parent) {
     mesh = parent;
     
-    // Get function name from args
     var fnname = null;
     if (typeof args['_'] != 'undefined') {
         fnname = args['_'][1];
@@ -38,7 +37,7 @@ function consoleaction(args, rights, sessionid, parent) {
 }
 
 /**
- * Run a PowerShell command and return result (Duktape compatible)
+ * Executes a PowerShell command synchronously using waitExit()
  */
 function runPowerShell(command, callback) {
     var Xerr = null;
@@ -69,13 +68,13 @@ function runPowerShell(command, callback) {
 }
 
 /**
- * Send result back to server with sessionid for proper routing
+ * Packages and sends the final result back to the server for routing
  */
 function sendResult(action, success, data, message, sessionid, nodeid) {
     mesh.SendCommand({
         action: 'plugin',
         plugin: 'hwhealth',
-        pluginaction: action, // e.g., 'healthData' or 'healthError'
+        pluginaction: action, 
         success: success,
         data: data,
         message: message,
@@ -85,7 +84,7 @@ function sendResult(action, success, data, message, sessionid, nodeid) {
 }
 
 /**
- * Collect Hardware Data
+ * Collects hardware telemetry via PowerShell
  */
 function doGetHealth(sessionid, nodeid) {
     if (process.platform !== 'win32') {
@@ -93,6 +92,7 @@ function doGetHealth(sessionid, nodeid) {
         return;
     }
 
+    // PowerShell script strictly using single quotes to avoid command-line escape sequence issues
     var psCommand = 
         "$ErrorActionPreference = 'SilentlyContinue'; " +
         "$cs = Get-CimInstance Win32_ComputerSystem; " +
@@ -101,8 +101,10 @@ function doGetHealth(sessionid, nodeid) {
         "$ram = Get-CimInstance Win32_OperatingSystem; " +
         "$batt = Get-CimInstance Win32_Battery | Select-Object -First 1; " +
         "$cpuTempRaw = (Get-WmiObject MSAcpi_ThermalZoneTemperature -Namespace root/wmi | Select-Object -First 1).CurrentTemperature; " +
-        "if ($cpuTempRaw) { $cpuTemp = \"$([math]::Round(($cpuTempRaw/10)-273.15, 1)) C\" } else { $cpuTemp = 'N/A' }; " +
-        "if ($batt) { $battSummary = \"$($batt.EstimatedChargeRemaining)% (Status: $($batt.BatteryStatus))\" } else { $battSummary = 'No Battery / Desktop' }; " +
+        "if ($cpuTempRaw) { $cpuTemp = [math]::Round(($cpuTempRaw/10)-273.15, 1).ToString() + ' C' } else { $cpuTemp = 'N/A' }; " +
+        "if ($batt) { $battSummary = $batt.EstimatedChargeRemaining.ToString() + '% (Status: ' + $batt.BatteryStatus.ToString() + ')' } else { $battSummary = 'No Battery / Desktop' }; " +
+        "$memUsed = [math]::Round(($ram.TotalVisibleMemorySize-$ram.FreePhysicalMemory)/1MB, 2).ToString(); " +
+        "$memTotal = [math]::Round($ram.TotalVisibleMemorySize/1MB, 2).ToString(); " +
         "$result = @{ " +
         "computerName = $cs.Name; " +
         "manufacturer = $cs.Manufacturer; " +
@@ -110,29 +112,41 @@ function doGetHealth(sessionid, nodeid) {
         "serialNumber = $bios.SerialNumber; " +
         "biosVersion = $bios.SMBIOSBIOSVersion; " +
         "cpuName = $cpu.Name; " +
-        "cpuLoad = \"$($cpu.LoadPercentage)%\"; " +
+        "cpuLoad = $cpu.LoadPercentage.ToString() + '%'; " +
         "cpuTemp = $cpuTemp; " +
-        "memorySummary = \"$([math]::Round(($ram.TotalVisibleMemorySize-$ram.FreePhysicalMemory)/1MB, 2)) GB Used / $([math]::Round($ram.TotalVisibleMemorySize/1MB, 2)) GB Total\"; " +
+        "memorySummary = $memUsed + ' GB Used / ' + $memTotal + ' GB Total'; " +
         "batterySummary = $battSummary; " +
         "collectedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') " +
         "}; " +
         "$result | ConvertTo-Json -Compress";
 
     runPowerShell(psCommand, function(err, stdout, stderr) {
-        if (err || (stdout === "" && stderr !== "")) {
-            sendResult('healthError', false, null, 'PowerShell Error: ' + (stderr || (err && err.message) || err), sessionid, nodeid);
-            return;
+        var data = null;
+        var isSuccess = false;
+
+        // Try parsing stdout even if err is not null (PowerShell often returns exit code 1 on non-terminating errors)
+        if (stdout && stdout.length > 0) {
+            try {
+                data = JSON.parse(stdout);
+                isSuccess = true;
+            } catch (e) {
+                // Parsing failed, will fallback to error handler below
+            }
         }
 
-        var data = null;
-        try {
-            data = JSON.parse(stdout);
+        if (isSuccess) {
             sendResult('healthData', true, data, null, sessionid, nodeid);
-        } catch (e) {
-            sendResult('healthError', false, null, 'Failed to parse JSON: ' + e.message + ' | Raw output: ' + stdout, sessionid, nodeid);
+        } else {
+            // Provide a detailed error dump if execution or parsing completely failed
+            var errorDetails = 'PowerShell Execution Failed. ';
+            if (err) errorDetails += 'Exit Code: ' + err + ' | ';
+            if (stderr) errorDetails += 'StdErr: ' + stderr + ' | ';
+            if (stdout) errorDetails += 'StdOut: ' + stdout;
+            
+            sendResult('healthError', false, null, errorDetails, sessionid, nodeid);
         }
     });
 }
 
-// Expose the consoleaction function to MeshCore
+// Expose functions to the MeshCore engine
 module.exports = { consoleaction: consoleaction };
