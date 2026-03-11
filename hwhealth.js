@@ -5,7 +5,7 @@ module.exports.hwhealth = function (parent) {
     obj.parent = parent;
     obj.meshServer = parent.parent;
     
-    // אלו הפונקציות שהשרת אורז ושולח לדפדפן של המנהל
+    // These functions are packed by the server and sent to the administrator's browser
     obj.exports = ['onDeviceRefreshEnd', 'loadHealthData', 'loadHealthError'];
 
     obj.server_startup = function () {
@@ -13,7 +13,7 @@ module.exports.hwhealth = function (parent) {
     };
 
     // ==========================================
-    // חלק 1: קוד שמוזרק ורץ בדפדפן (צד לקוח)
+    // Part 1: Code injected and executed in the browser (Client Side)
     // ==========================================
     
     obj.onDeviceRefreshEnd = function () {
@@ -49,18 +49,31 @@ module.exports.hwhealth = function (parent) {
                 QH('hwhealthRaw', '');
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait up to 15 seconds)');
 
-                // חיפוש חכם של אובייקט התקשורת בדפדפן
-                var sender = (typeof meshServer !== 'undefined') ? meshServer : ((typeof server !== 'undefined') ? server : null);
-                if (sender) {
-                    sender.send({ 
-                        action: 'plugin', 
-                        plugin: 'hwhealth', 
-                        pluginaction: 'getHealth', 
-                        nodeid: currentNode._id 
-                    });
-                } else {
+                try {
+                    // In the main MeshCentral UI, the global WebSocket object is 'server'.
+                    // We attempt to use 'server', falling back to 'meshServer' if needed.
+                    if (typeof server !== 'undefined') {
+                        server.send({ 
+                            action: 'plugin', 
+                            plugin: 'hwhealth', 
+                            pluginaction: 'getHealth', 
+                            nodeid: currentNode._id 
+                        });
+                    } else if (typeof meshServer !== 'undefined') {
+                        meshServer.send({ 
+                            action: 'plugin', 
+                            plugin: 'hwhealth', 
+                            pluginaction: 'getHealth', 
+                            nodeid: currentNode._id 
+                        });
+                    } else {
+                        // If neither is found, throw an explicit error to catch it below
+                        throw new Error("Neither 'server' nor 'meshServer' objects were found globally in the browser.");
+                    }
+                } catch (err) {
+                    // Send the exact error to our UI error handler if the WebSocket is missing
                     if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
-                        pluginHandler.hwhealth.loadHealthError({ message: 'WebSocket sender not found in browser.' });
+                        pluginHandler.hwhealth.loadHealthError({ message: 'WebSocket Error: ' + err.message });
                     }
                 }
             };
@@ -68,7 +81,7 @@ module.exports.hwhealth = function (parent) {
     };
 
     obj.loadHealthData = function (msg) {
-        // פונקציית עזר לניקוי תווים, מוטמעת כאן כדי שתישלח יחד לדפדפן
+        // Helper function to escape special characters, embedded here to be sent to the browser
         function esc(s) {
             if (s == null) return '';
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -106,7 +119,7 @@ module.exports.hwhealth = function (parent) {
         var rawEl = document.getElementById('hwhealthRaw');
         if (statusEl) statusEl.innerText = 'Failed to load hardware data.';
         
-        // מדפיס את האובייקט המלא כדי לעזור בדיבאג
+        // Print the full object to help with debugging
         if (rawEl) {
             var errorText = (msg && msg.message) ? msg.message : 'Unknown error occurred.';
             rawEl.textContent = "ERROR DUMP:\n" + errorText + "\n\nRaw Object:\n" + JSON.stringify(msg, null, 2);
@@ -114,7 +127,7 @@ module.exports.hwhealth = function (parent) {
     };
 
     // ==========================================
-    // חלק 2: קוד שרץ בשרת בלבד (ניתוב הודעות)
+    // Part 2: Code running on the server only (Message Routing)
     // ==========================================
 
     obj.serveraction = function(command, myparent, grandparent) {
@@ -129,7 +142,7 @@ module.exports.hwhealth = function (parent) {
 
         switch (command.pluginaction) {
             
-            // 1. בקשה הגיעה מהדפדפן (UI) -> נשלח ל-Agent
+            // 1. Request arrived from the browser (UI) -> Route it to the Agent
             case 'getHealth':
                 var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
@@ -141,7 +154,7 @@ module.exports.hwhealth = function (parent) {
                         nodeid: command.nodeid
                     }));
                 } else {
-                    // Agent מנותק, נחזיר שגיאה ישירות לדפדפן
+                    // Agent is disconnected, return an error directly to the browser
                     if (currentSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[currentSessionid]) {
                         obj.meshServer.webserver.wssessions2[currentSessionid].send(JSON.stringify({
                             action: 'plugin',
@@ -154,7 +167,7 @@ module.exports.hwhealth = function (parent) {
                 }
                 break;
 
-            // 2. תשובה הגיעה מה-Agent -> נחזיר לדפדפן של המנהל
+            // 2. Response arrived from the Agent -> Return it to the Admin's browser
             case 'healthData':
             case 'healthError':
                 var targetSessionid = command.sessionid;
