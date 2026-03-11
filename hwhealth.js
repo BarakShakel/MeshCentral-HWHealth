@@ -22,15 +22,15 @@ module.exports.hwhealth = function (parent) {
 
         pluginHandler.registerPluginTab({ tabTitle: 'HW Health', tabId: 'pluginHwHealth' });
 
+        // Removed the raw JSON <pre> element and added a clean background to the summary
         var html = ''
             + '<div style="padding:12px;">'
             + '  <div style="font-size:18px;font-weight:bold;margin-bottom:10px;">Hardware Health</div>'
             + '  <div id="hwhealthStatus" style="margin-bottom:10px;color:#666;">Ready.</div>'
-            + '  <div style="margin-bottom:10px;">'
+            + '  <div style="margin-bottom:15px;">'
             + '    <button id="hwhealthRefreshBtn" class="btn btn-primary">Refresh Hardware Data</button>'
             + '  </div>'
-            + '  <div id="hwhealthSummary" style="margin-bottom:12px; font-size: 14px; line-height: 1.6;"></div>'
-            + '  <pre id="hwhealthRaw" style="white-space:pre-wrap;background:#111;color:#33ff33;padding:10px;border-radius:6px;min-height:220px;"></pre>'
+            + '  <div id="hwhealthSummary" style="margin-bottom:12px; font-size: 14px; line-height: 1.6; background: #f8f9fa; padding: 15px; border-radius: 5px; border: 1px solid #dee2e6;"></div>'
             + '</div>';
 
         QA('pluginHwHealth', html);
@@ -40,14 +40,12 @@ module.exports.hwhealth = function (parent) {
             btn.onclick = function () {
                 if (typeof currentNode === 'undefined' || !currentNode || !currentNode._id) {
                     if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
-                        // Pass null as the first parameter to align with the new function signature
                         pluginHandler.hwhealth.loadHealthError(null, { message: 'No device selected.' });
                     }
                     return;
                 }
 
                 QH('hwhealthSummary', '');
-                QH('hwhealthRaw', '');
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait up to 15 seconds)');
 
                 try {
@@ -77,7 +75,6 @@ module.exports.hwhealth = function (parent) {
         }
     };
 
-    // FIX: Added 'serverObj' as the first parameter since MeshCentral passes (websocket, message_payload)
     obj.loadHealthData = function (serverObj, msg) {
         function esc(s) {
             if (s == null) return '';
@@ -86,13 +83,11 @@ module.exports.hwhealth = function (parent) {
 
         var statusEl = document.getElementById('hwhealthStatus');
         var summaryEl = document.getElementById('hwhealthSummary');
-        var rawEl = document.getElementById('hwhealthRaw');
 
         if (statusEl) statusEl.innerText = 'Hardware data loaded successfully.';
 
-        // Validation against empty payloads
         if (!msg || !msg.data) {
-            if (rawEl) rawEl.textContent = 'No data returned from Agent.\n\nRaw Msg:\n' + JSON.stringify(msg, null, 2);
+            if (summaryEl) summaryEl.innerHTML = '<span style="color:red; font-weight:bold;">No data returned from Agent.</span>';
             return;
         }
 
@@ -103,24 +98,25 @@ module.exports.hwhealth = function (parent) {
         summaryHtml += '<div><b>Manufacturer / Model:</b> ' + esc(d.manufacturer) + ' / ' + esc(d.model) + '</div>';
         summaryHtml += '<div><b>Serial Number:</b> ' + esc(d.serialNumber) + '</div>';
         summaryHtml += '<div><b>BIOS Version:</b> ' + esc(d.biosVersion) + '</div>';
+        summaryHtml += '<div><hr style="margin: 10px 0;"></div>'; // Visual separator
         summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName) + ' (Load: ' + esc(d.cpuLoad) + ', Temp: ' + esc(d.cpuTemp) + ')</div>';
         summaryHtml += '<div><b>RAM:</b> ' + esc(d.memorySummary) + '</div>';
         summaryHtml += '<div><b>Battery:</b> ' + esc(d.batterySummary) + '</div>';
-        summaryHtml += '<div style="margin-top: 10px; color: #888; font-size: 12px;"><b>Collected At:</b> ' + esc(d.collectedAt) + '</div>';
+        summaryHtml += '<div style="margin-top: 15px; color: #888; font-size: 12px; text-align: right;"><i>Collected At: ' + esc(d.collectedAt) + '</i></div>';
 
         if (summaryEl) summaryEl.innerHTML = summaryHtml;
-        if (rawEl) rawEl.textContent = JSON.stringify(d, null, 2);
     };
 
-    // FIX: Added 'serverObj' as the first parameter
     obj.loadHealthError = function (serverObj, msg) {
         var statusEl = document.getElementById('hwhealthStatus');
-        var rawEl = document.getElementById('hwhealthRaw');
+        var summaryEl = document.getElementById('hwhealthSummary');
+        
         if (statusEl) statusEl.innerText = 'Failed to load hardware data.';
         
-        if (rawEl) {
+        if (summaryEl) {
             var errorText = (msg && msg.message) ? msg.message : 'Unknown error occurred.';
-            rawEl.textContent = "ERROR DUMP:\n" + errorText + "\n\nRaw Object:\n" + JSON.stringify(msg, null, 2);
+            // Display the error inside the summary box instead of the raw dump
+            summaryEl.innerHTML = '<span style="color:#d9534f;"><b>Error:</b> ' + String(errorText).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
         }
     };
 
