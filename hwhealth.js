@@ -3,6 +3,8 @@
 module.exports.hwhealth = function (parent) {
     var obj = {};
     obj.parent = parent;
+    
+    // Server-side WebSocket object (capital S)
     obj.meshServer = parent.parent;
     
     // These functions are packed by the server and sent to the administrator's browser
@@ -50,28 +52,25 @@ module.exports.hwhealth = function (parent) {
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait up to 15 seconds)');
 
                 try {
-                    // In the main MeshCentral UI, the global WebSocket object is 'server'.
-                    // We attempt to use 'server', falling back to 'meshServer' if needed.
-                    if (typeof server !== 'undefined') {
+                    // The main MeshCentral UI uses 'meshserver' (all lowercase) for WebSocket communication
+                    if (typeof meshserver !== 'undefined' && meshserver != null) {
+                        meshserver.send({ 
+                            action: 'plugin', 
+                            plugin: 'hwhealth', 
+                            pluginaction: 'getHealth', 
+                            nodeid: currentNode._id 
+                        });
+                    } else if (typeof server !== 'undefined' && server != null) {
                         server.send({ 
                             action: 'plugin', 
                             plugin: 'hwhealth', 
                             pluginaction: 'getHealth', 
                             nodeid: currentNode._id 
                         });
-                    } else if (typeof meshServer !== 'undefined') {
-                        meshServer.send({ 
-                            action: 'plugin', 
-                            plugin: 'hwhealth', 
-                            pluginaction: 'getHealth', 
-                            nodeid: currentNode._id 
-                        });
                     } else {
-                        // If neither is found, throw an explicit error to catch it below
-                        throw new Error("Neither 'server' nor 'meshServer' objects were found globally in the browser.");
+                        throw new Error("Could not find 'meshserver' object in the browser.");
                     }
                 } catch (err) {
-                    // Send the exact error to our UI error handler if the WebSocket is missing
                     if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
                         pluginHandler.hwhealth.loadHealthError({ message: 'WebSocket Error: ' + err.message });
                     }
@@ -180,6 +179,7 @@ module.exports.hwhealth = function (parent) {
                     nodeid: command.nodeid
                 };
                 
+                // Route back to the browser session
                 if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
                     try {
                         obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
