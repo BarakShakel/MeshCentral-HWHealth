@@ -1,3 +1,3 @@
 
 Working again with Gemini
-v1.0.12
+v1.0.13
