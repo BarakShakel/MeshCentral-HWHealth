@@ -3,11 +3,9 @@
 module.exports.hwhealth = function (parent) {
     var obj = {};
     obj.parent = parent;
-    
-    // Server-side WebSocket object (capital S)
     obj.meshServer = parent.parent;
     
-    // These functions are packed by the server and sent to the administrator's browser
+    // Functions exposed to the frontend browser
     obj.exports = ['onDeviceRefreshEnd', 'loadHealthData', 'loadHealthError'];
 
     obj.server_startup = function () {
@@ -15,7 +13,7 @@ module.exports.hwhealth = function (parent) {
     };
 
     // ==========================================
-    // Part 1: Code injected and executed in the browser (Client Side)
+    // Part 1: Client-Side Code (Injected into browser)
     // ==========================================
     
     obj.onDeviceRefreshEnd = function () {
@@ -42,7 +40,8 @@ module.exports.hwhealth = function (parent) {
             btn.onclick = function () {
                 if (typeof currentNode === 'undefined' || !currentNode || !currentNode._id) {
                     if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
-                        pluginHandler.hwhealth.loadHealthError({ message: 'No device selected.' });
+                        // Pass null as the first parameter to align with the new function signature
+                        pluginHandler.hwhealth.loadHealthError(null, { message: 'No device selected.' });
                     }
                     return;
                 }
@@ -52,7 +51,6 @@ module.exports.hwhealth = function (parent) {
                 QH('hwhealthStatus', 'Collecting hardware data from endpoint... (Please wait up to 15 seconds)');
 
                 try {
-                    // The main MeshCentral UI uses 'meshserver' (all lowercase) for WebSocket communication
                     if (typeof meshserver !== 'undefined' && meshserver != null) {
                         meshserver.send({ 
                             action: 'plugin', 
@@ -68,19 +66,19 @@ module.exports.hwhealth = function (parent) {
                             nodeid: currentNode._id 
                         });
                     } else {
-                        throw new Error("Could not find 'meshserver' object in the browser.");
+                        throw new Error("WebSocket object not found.");
                     }
                 } catch (err) {
                     if (pluginHandler.hwhealth && pluginHandler.hwhealth.loadHealthError) {
-                        pluginHandler.hwhealth.loadHealthError({ message: 'WebSocket Error: ' + err.message });
+                        pluginHandler.hwhealth.loadHealthError(null, { message: 'WebSocket Error: ' + err.message });
                     }
                 }
             };
         }
     };
 
-    obj.loadHealthData = function (msg) {
-        // Helper function to escape special characters, embedded here to be sent to the browser
+    // FIX: Added 'serverObj' as the first parameter since MeshCentral passes (websocket, message_payload)
+    obj.loadHealthData = function (serverObj, msg) {
         function esc(s) {
             if (s == null) return '';
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
@@ -92,8 +90,9 @@ module.exports.hwhealth = function (parent) {
 
         if (statusEl) statusEl.innerText = 'Hardware data loaded successfully.';
 
+        // Validation against empty payloads
         if (!msg || !msg.data) {
-            if (rawEl) rawEl.textContent = 'No data returned from Agent.';
+            if (rawEl) rawEl.textContent = 'No data returned from Agent.\n\nRaw Msg:\n' + JSON.stringify(msg, null, 2);
             return;
         }
 
@@ -113,12 +112,12 @@ module.exports.hwhealth = function (parent) {
         if (rawEl) rawEl.textContent = JSON.stringify(d, null, 2);
     };
 
-    obj.loadHealthError = function (msg) {
+    // FIX: Added 'serverObj' as the first parameter
+    obj.loadHealthError = function (serverObj, msg) {
         var statusEl = document.getElementById('hwhealthStatus');
         var rawEl = document.getElementById('hwhealthRaw');
         if (statusEl) statusEl.innerText = 'Failed to load hardware data.';
         
-        // Print the full object to help with debugging
         if (rawEl) {
             var errorText = (msg && msg.message) ? msg.message : 'Unknown error occurred.';
             rawEl.textContent = "ERROR DUMP:\n" + errorText + "\n\nRaw Object:\n" + JSON.stringify(msg, null, 2);
@@ -126,7 +125,7 @@ module.exports.hwhealth = function (parent) {
     };
 
     // ==========================================
-    // Part 2: Code running on the server only (Message Routing)
+    // Part 2: Server-Side Code (Message Routing)
     // ==========================================
 
     obj.serveraction = function(command, myparent, grandparent) {
@@ -141,7 +140,7 @@ module.exports.hwhealth = function (parent) {
 
         switch (command.pluginaction) {
             
-            // 1. Request arrived from the browser (UI) -> Route it to the Agent
+            // Route request from Admin UI to Remote Agent
             case 'getHealth':
                 var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
@@ -153,7 +152,6 @@ module.exports.hwhealth = function (parent) {
                         nodeid: command.nodeid
                     }));
                 } else {
-                    // Agent is disconnected, return an error directly to the browser
                     if (currentSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[currentSessionid]) {
                         obj.meshServer.webserver.wssessions2[currentSessionid].send(JSON.stringify({
                             action: 'plugin',
@@ -166,7 +164,7 @@ module.exports.hwhealth = function (parent) {
                 }
                 break;
 
-            // 2. Response arrived from the Agent -> Return it to the Admin's browser
+            // Route response from Remote Agent back to Admin UI
             case 'healthData':
             case 'healthError':
                 var targetSessionid = command.sessionid;
@@ -179,7 +177,6 @@ module.exports.hwhealth = function (parent) {
                     nodeid: command.nodeid
                 };
                 
-                // Route back to the browser session
                 if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
                     try {
                         obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
