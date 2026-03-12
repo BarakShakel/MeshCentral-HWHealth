@@ -92,7 +92,8 @@ function doGetHealth(sessionid, nodeid) {
         return;
     }
 
-    // PowerShell script strictly using single quotes to avoid command-line escape sequence issues
+    // PowerShell script strictly using single quotes
+    // Added: Pending Reboot, BitLocker Status, Disk Health
     var psCommand = 
         "$ErrorActionPreference = 'SilentlyContinue'; " +
         "$cs = Get-CimInstance Win32_ComputerSystem; " +
@@ -105,6 +106,11 @@ function doGetHealth(sessionid, nodeid) {
         "if ($batt) { $battSummary = $batt.EstimatedChargeRemaining.ToString() + '% (Status: ' + $batt.BatteryStatus.ToString() + ')' } else { $battSummary = 'No Battery / Desktop' }; " +
         "$memUsed = [math]::Round(($ram.TotalVisibleMemorySize-$ram.FreePhysicalMemory)/1MB, 2).ToString(); " +
         "$memTotal = [math]::Round($ram.TotalVisibleMemorySize/1MB, 2).ToString(); " +
+        "$rebootReq = if (Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired') { 'Yes' } else { 'No' }; " +
+        "$bl = Get-WmiObject -Namespace root\\CIMv2\\Security\\MicrosoftVolumeEncryption -Class Win32_EncryptableVolume -Filter \"DriveLetter='C:'\" | Select-Object -First 1; " +
+        "$blStatus = if ($bl) { if ($bl.ProtectionStatus -eq 1) { 'Encrypted' } else { 'Not Encrypted / Suspended' } } else { 'Unknown / Off' }; " +
+        "$disk = Get-PhysicalDisk | Where-Object DeviceID -eq 0 | Select-Object -First 1; " +
+        "$diskHealth = if ($disk) { $disk.HealthStatus } else { 'Unknown' }; " +
         "$result = @{ " +
         "computerName = $cs.Name; " +
         "manufacturer = $cs.Manufacturer; " +
@@ -116,6 +122,9 @@ function doGetHealth(sessionid, nodeid) {
         "cpuTemp = $cpuTemp; " +
         "memorySummary = $memUsed + ' GB Used / ' + $memTotal + ' GB Total'; " +
         "batterySummary = $battSummary; " +
+        "pendingReboot = $rebootReq; " +
+        "bitlockerStatus = $blStatus; " +
+        "diskHealth = $diskHealth; " +
         "collectedAt = (Get-Date).ToString('yyyy-MM-dd HH:mm:ss') " +
         "}; " +
         "$result | ConvertTo-Json -Compress";
@@ -124,20 +133,18 @@ function doGetHealth(sessionid, nodeid) {
         var data = null;
         var isSuccess = false;
 
-        // Try parsing stdout even if err is not null (PowerShell often returns exit code 1 on non-terminating errors)
         if (stdout && stdout.length > 0) {
             try {
                 data = JSON.parse(stdout);
                 isSuccess = true;
             } catch (e) {
-                // Parsing failed, will fallback to error handler below
+                // Parsing failed
             }
         }
 
         if (isSuccess) {
             sendResult('healthData', true, data, null, sessionid, nodeid);
         } else {
-            // Provide a detailed error dump if execution or parsing completely failed
             var errorDetails = 'PowerShell Execution Failed. ';
             if (err) errorDetails += 'Exit Code: ' + err + ' | ';
             if (stderr) errorDetails += 'StdErr: ' + stderr + ' | ';
