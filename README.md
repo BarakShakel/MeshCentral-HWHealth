@@ -58,10 +58,7 @@ Restart your MeshCentral server after making this change.
 
 * **The HW Health tab is missing:** Ensure you restarted the MeshCentral service (`systemctl restart meshcentral`) after installation. Also, try performing a hard refresh (`Ctrl+F5`) in your browser to clear the cache.
 * **Data is not loading or "Unknown Error":** The MeshAgent caches plugin files. If you recently updated the plugin on the server, the remote machine might still be running an older version of the script. 
-  To clear the agent's cache:
-  1. Go to the device's **Console** tab in MeshCentral.
-  2. Type `clearcore` and press `Enter`.
-  3. Wait a moment for the agent to reconnect, then try refreshing the hardware data again.
+
 
 ## License
 
