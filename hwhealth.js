@@ -22,7 +22,6 @@ module.exports.hwhealth = function (parent) {
 
         pluginHandler.registerPluginTab({ tabTitle: 'HW Health', tabId: 'pluginHwHealth' });
 
-        // Removed the raw JSON <pre> element and added a clean background to the summary
         var html = ''
             + '<div style="padding:12px;">'
             + '  <div style="font-size:18px;font-weight:bold;margin-bottom:10px;">Hardware Health</div>'
@@ -93,15 +92,22 @@ module.exports.hwhealth = function (parent) {
 
         var d = msg.data;
 
+        // Visual warning for pending reboots
+        var rebootWarning = (d.pendingReboot === 'Yes') ? '<span style="color:#d9534f; font-weight:bold;">Yes (Reboot Required)</span>' : 'No';
+
         var summaryHtml = '';
         summaryHtml += '<div><b>Computer Name:</b> ' + esc(d.computerName) + '</div>';
         summaryHtml += '<div><b>Manufacturer / Model:</b> ' + esc(d.manufacturer) + ' / ' + esc(d.model) + '</div>';
         summaryHtml += '<div><b>Serial Number:</b> ' + esc(d.serialNumber) + '</div>';
         summaryHtml += '<div><b>BIOS Version:</b> ' + esc(d.biosVersion) + '</div>';
-        summaryHtml += '<div><hr style="margin: 10px 0;"></div>'; // Visual separator
+        summaryHtml += '<div><hr style="margin: 10px 0;"></div>'; 
         summaryHtml += '<div><b>CPU:</b> ' + esc(d.cpuName) + ' (Load: ' + esc(d.cpuLoad) + ', Temp: ' + esc(d.cpuTemp) + ')</div>';
         summaryHtml += '<div><b>RAM:</b> ' + esc(d.memorySummary) + '</div>';
         summaryHtml += '<div><b>Battery:</b> ' + esc(d.batterySummary) + '</div>';
+        summaryHtml += '<div><hr style="margin: 10px 0;"></div>'; 
+        summaryHtml += '<div><b>Drive 0 Health:</b> ' + esc(d.diskHealth) + '</div>';
+        summaryHtml += '<div><b>BitLocker (C:):</b> ' + esc(d.bitlockerStatus) + '</div>';
+        summaryHtml += '<div><b>Pending Reboot:</b> ' + rebootWarning + '</div>';
         summaryHtml += '<div style="margin-top: 15px; color: #888; font-size: 12px; text-align: right;"><i>Collected At: ' + esc(d.collectedAt) + '</i></div>';
 
         if (summaryEl) summaryEl.innerHTML = summaryHtml;
@@ -115,7 +121,6 @@ module.exports.hwhealth = function (parent) {
         
         if (summaryEl) {
             var errorText = (msg && msg.message) ? msg.message : 'Unknown error occurred.';
-            // Display the error inside the summary box instead of the raw dump
             summaryEl.innerHTML = '<span style="color:#d9534f;"><b>Error:</b> ' + String(errorText).replace(/</g, '&lt;').replace(/>/g, '&gt;') + '</span>';
         }
     };
@@ -135,8 +140,6 @@ module.exports.hwhealth = function (parent) {
         var currentSessionid = command.sessionid || sessionid;
 
         switch (command.pluginaction) {
-            
-            // Route request from Admin UI to Remote Agent
             case 'getHealth':
                 var agent = obj.meshServer.webserver.wsagents[command.nodeid];
                 if (agent != null) {
@@ -160,7 +163,6 @@ module.exports.hwhealth = function (parent) {
                 }
                 break;
 
-            // Route response from Remote Agent back to Admin UI
             case 'healthData':
             case 'healthError':
                 var targetSessionid = command.sessionid;
@@ -176,9 +178,7 @@ module.exports.hwhealth = function (parent) {
                 if (targetSessionid && obj.meshServer.webserver.wssessions2 && obj.meshServer.webserver.wssessions2[targetSessionid]) {
                     try {
                         obj.meshServer.webserver.wssessions2[targetSessionid].send(JSON.stringify(response));
-                    } catch (e) {
-                        console.log('HW Health routing error:', e);
-                    }
+                    } catch (e) {}
                 }
                 break;
         }
