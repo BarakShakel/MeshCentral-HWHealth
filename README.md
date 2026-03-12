@@ -25,6 +25,13 @@ The plugin injects a dedicated **HW Health** tab into the device panel. With a s
 
 ## Installation
 
+Pre-requisite: First, make sure you have plugins enabled for your MeshCentral installation:
+
+"plugins": {
+     "enabled": true
+},
+Restart your MeshCentral server after making this change.
+
 1. Log in to your MeshCentral server as an Administrator.
 2. Navigate to **My Server** -> **Plugins**.
 3. Click the **Download Plugin** button.
